@@ -629,8 +629,15 @@ pub fn tm_nn(
         }
     }
 
-    // Apply symmetry penalty if self-complementary
     let mut k = (params.dnac1 - (params.dnac2 / 2.0)) * 1e-9;
+    if k < 0.0 {
+        return Err(format!(
+            "dnac1={:.2} and dnac2={:.2} produce a math domain error",
+            params.dnac1, params.dnac2
+        ));
+    }
+
+    // Apply symmetry penalty if self-complementary
     if params.selfcomp {
         k = params.dnac1 * 1e-9;
         delta_h += init_params.sym[D_H];
@@ -638,7 +645,6 @@ pub fn tm_nn(
     }
 
     let r = 1.987; // universal gas constant in Cal/degrees C*Mol
-
     let mut melting_temp = (1000.0 * delta_h) / (delta_s + (r * k.ln())) - 273.15;
 
     if params.saltcorr > 0 {
@@ -868,5 +874,26 @@ mod tests {
                 .abs()
                 < 0.01
         );
+    }
+
+    /// edge-case discovered durring fuzzing
+    #[test]
+    fn test_negative_log() {
+        assert!(tm_nn(
+            b"CAAGAAGGCGAAAAGGTTCACTG",
+            None,
+            TmNnParams {
+                mg: 4.621312938289794,
+                na: 58.0,
+                k: 42.0,
+                tris: 74.0,
+                dnac1: 42.0,
+                dnac2: 92.0,
+                dntps: 84.0,
+                saltcorr: 6,
+                ..Default::default()
+            }
+        )
+        .is_err());
     }
 }
