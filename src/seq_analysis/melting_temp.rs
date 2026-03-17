@@ -422,21 +422,21 @@ fn salt_correction(
     Ok(corr)
 }
 
-pub fn tm_nn<C: Borrow<u8>, T: IntoIterator<Item = C>>(
-    sequence: T,
-    c_sequence: Option<T>,
+pub fn tm_nn(
+    sequence: &[u8],
+    c_sequence: Option<&[u8]>,
     params: TmNnParams,
 ) -> Result<f64, String> {
-    if sequence.len() == 0 {
+    if sequence.is_empty() {
         return Err("Sequence is empty.".to_string());
     }
 
+    // Working copy that may be mutated for dangling ends/terminal mismatches
     let mut tmp_seq = Cow::Borrowed(sequence);
-    let orig_seq_len = tmp_seq.len();
-    let mut tmp_cseq = if let Some(cs) = c_sequence {
+    let mut tmp_cseq: Cow<[u8]> = if let Some(cs) = c_sequence {
         Cow::Borrowed(cs)
     } else {
-        Cow::Owned(compl_seq(sequence))
+        Cow::Owned(compl_seq(sequence.iter()))
     };
 
     let mut delta_h = 0.0;
@@ -561,7 +561,7 @@ pub fn tm_nn<C: Borrow<u8>, T: IntoIterator<Item = C>>(
     delta_s += init_params.init[D_S];
 
     // Check for all A/T vs at least one G/C
-    if gc_fraction(&sequence) == 0.0 {
+    if gc_content(sequence) == 0.0 {
         delta_h += init_params.init_all_at[D_H];
         delta_s += init_params.init_all_at[D_S];
     } else {
@@ -574,7 +574,7 @@ pub fn tm_nn<C: Borrow<u8>, T: IntoIterator<Item = C>>(
         delta_h += init_params.init_5t_a[D_H];
         delta_s += init_params.init_5t_a[D_S];
     }
-    if sequence[orig_seq_len - 1] == b'A' {
+    if sequence[sequence.len() - 1] == b'A' {
         delta_h += init_params.init_5t_a[D_H];
         delta_s += init_params.init_5t_a[D_S];
     }
@@ -677,7 +677,7 @@ mod tests {
     #[test]
     fn test_tm_nn_simple() {
         assert!(
-            (rust_tm_nn(
+            (tm_nn(
                 b"CGCTCAGAGACAAGCCGTTACAACGTAACC",
                 None,
                 TmNnParams::default()
@@ -688,15 +688,14 @@ mod tests {
                 < 0.01
         );
         assert!(
-            (rust_tm_nn(b"CGGGGCGGCCGGCCCGCCGG", None, TmNnParams::default()).unwrap() - 74.11)
-                .abs()
+            (tm_nn(b"CGGGGCGGCCGGCCCGCCGG", None, TmNnParams::default()).unwrap() - 74.11).abs()
                 < 0.01
         );
     }
 
     #[test]
     fn test_tm_nn_failures() {
-        assert!(rust_tm_nn(
+        assert!(tm_nn(
             b"CGCTCAGAGACAAGCCGTTACAACGTAACC",
             Some(b"A"),
             TmNnParams::default(),
@@ -707,12 +706,10 @@ mod tests {
     #[test]
     fn test_tm_nn_dangling_ends() {
         assert!(
-            (rust_tm_nn(b"GTGTCCTCGAGT", None, TmNnParams::default()).unwrap() - 34.79).abs()
-                < 0.01
+            (tm_nn(b"GTGTCCTCGAGT", None, TmNnParams::default()).unwrap() - 34.79).abs() < 0.01
         );
         assert!(
-            (rust_tm_nn(b"GTGTCCTCGAGT", Some(b"CACAGGAGCTC"), TmNnParams::default()).unwrap()
-                - 30.78)
+            (tm_nn(b"GTGTCCTCGAGT", Some(b"CACAGGAGCTC"), TmNnParams::default()).unwrap() - 30.78)
                 .abs()
                 < 0.01
         );
@@ -721,7 +718,7 @@ mod tests {
     #[test]
     fn test_tm_nn_shift() {
         assert!(
-            (rust_tm_nn(
+            (tm_nn(
                 b"CGTTCCAAAGATGTGGGCATGAGCTTAC",
                 Some(b"TGCAAGGCTTCTACACCCGTACTCGAATGC"),
                 TmNnParams {
@@ -739,7 +736,7 @@ mod tests {
     #[test]
     fn test_tm_nn_salt() {
         assert!(
-            (rust_tm_nn(
+            (tm_nn(
                 b"CGTTCCAAAGATGTGGGCATGAGCTTAC",
                 None,
                 TmNnParams {
@@ -753,7 +750,7 @@ mod tests {
                 < 0.01
         );
         assert!(
-            (rust_tm_nn(
+            (tm_nn(
                 b"CGTTCCAAAGATGTGGGCATGAGCTTAC",
                 None,
                 TmNnParams {
@@ -771,7 +768,7 @@ mod tests {
     #[test]
     fn test_tm_nn_mg() {
         assert!(
-            (rust_tm_nn(
+            (tm_nn(
                 b"CGTTCCAAAGATGTGGGCATGAGCTTAC",
                 None,
                 TmNnParams {
@@ -789,7 +786,7 @@ mod tests {
     #[test]
     fn test_tm_nn_k() {
         assert!(
-            (rust_tm_nn(
+            (tm_nn(
                 b"CGTTCCAAAGATGTGGGCATGAGCTTAC",
                 None,
                 TmNnParams {
@@ -807,14 +804,13 @@ mod tests {
     #[test]
     fn test_tm_nn_saltcorr() {
         assert!(
-            (rust_tm_nn(b"CGTTCCAAAGATGTGGGCATGAGCTTAC", None, TmNnParams::default()).unwrap()
-                - 60.32)
+            (tm_nn(b"CGTTCCAAAGATGTGGGCATGAGCTTAC", None, TmNnParams::default()).unwrap() - 60.32)
                 .abs()
                 < 0.01
         );
 
         assert!(
-            (rust_tm_nn(
+            (tm_nn(
                 b"CGTTCCAAAGATGTGGGCATGAGCTTAC",
                 None,
                 TmNnParams {
@@ -828,7 +824,7 @@ mod tests {
                 < 0.01
         );
         assert!(
-            (rust_tm_nn(
+            (tm_nn(
                 b"CGTTCCAAAGATGTGGGCATGAGCTTAC",
                 None,
                 TmNnParams {
@@ -845,7 +841,7 @@ mod tests {
 
     #[test]
     fn test_tm_nn_fail() {
-        assert!(rust_tm_nn(
+        assert!(tm_nn(
             b"CAGCGGTCGGCTTAATGCCTCC",
             Some(b"CATTCATCGTGACAGTGGACCA"),
             TmNnParams::default()
@@ -858,12 +854,11 @@ mod tests {
     #[test]
     fn test_tm_nn_weirdness() {
         assert!(
-            (rust_tm_nn(b"CACACACACACACACACACA", None, TmNnParams::default()).unwrap() - 53.44)
-                .abs()
+            (tm_nn(b"CACACACACACACACACACA", None, TmNnParams::default()).unwrap() - 53.44).abs()
                 < 0.01
         );
         assert!(
-            (rust_tm_nn(
+            (tm_nn(
                 b"CACACACACACACACACACA",
                 Some(b"ATATATATATATATATATAT"),
                 TmNnParams::default()
