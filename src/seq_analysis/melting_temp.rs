@@ -12,17 +12,17 @@ fn compl_seq<C: Borrow<u8>, T: IntoIterator<Item = C>>(sequence: T) -> Vec<u8> {
 
 #[derive(Clone)]
 pub struct TmNnParams {
-    strict: bool,
-    shift: i32,
-    dnac1: f64,
-    dnac2: f64,
-    selfcomp: bool,
-    na: f64,
-    k: f64,
-    tris: f64,
-    mg: f64,
-    dntps: f64,
-    saltcorr: u8,
+    pub strict: bool,
+    pub shift: i32,
+    pub dnac1: f64,
+    pub dnac2: f64,
+    pub selfcomp: bool,
+    pub na: f64,
+    pub k: f64,
+    pub tris: f64,
+    pub mg: f64,
+    pub dntps: f64,
+    pub saltcorr: u8,
 }
 
 impl Default for TmNnParams {
