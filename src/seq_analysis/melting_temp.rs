@@ -23,6 +23,8 @@ pub struct TmNnParams {
     pub mg: f64,
     pub dntps: f64,
     pub saltcorr: u8,
+    pub nn_table: NnTable,
+    pub de_table: DeTable,
 }
 
 impl Default for TmNnParams {
@@ -39,6 +41,8 @@ impl Default for TmNnParams {
             mg: 0.0,
             dntps: 0.0,
             saltcorr: 5,
+            nn_table: NnTable::default(),
+            de_table: DeTable::default(),
         }
     }
 }
@@ -46,7 +50,7 @@ impl Default for TmNnParams {
 // Structure to hold initiation parameters for DNA_NN tables
 // These are the "init_*" values from the thermodynamic tables
 #[derive(Copy, Clone)]
-struct DnaInitParams {
+pub struct DnaInitParams {
     init: HS,        // Basic initiation
     init_at: HS,     // A/T terminal basepairs
     init_gc: HS,     // G/C terminal basepairs
@@ -100,9 +104,110 @@ const DNA_NN4_INIT: DnaInitParams = DnaInitParams {
     sym: [0.0, -1.4],
 };
 
+// RNA_NN1 (Freier et al. 1986)
+const RNA_NN1_INIT: DnaInitParams = DnaInitParams {
+    init: [0.0, -10.8],
+    init_at: [0.0, 0.0],
+    init_gc: [0.0, 0.0],
+    init_one_gc: [0.0, 0.0],
+    init_all_at: [0.0, 0.0],
+    init_5t_a: [0.0, 0.0],
+    sym: [0.0, -1.4],
+};
+
+// RNA_NN2 (Xia et al. 1998)
+const RNA_NN2_INIT: DnaInitParams = DnaInitParams {
+    init: [3.61, -1.5],
+    init_at: [3.72, 10.5],
+    init_gc: [0.0, 0.0],
+    init_one_gc: [0.0, 0.0],
+    init_all_at: [0.0, 0.0],
+    init_5t_a: [0.0, 0.0],
+    sym: [0.0, -1.4],
+};
+
+// RNA_NN3 (Chen et al. 2012)
+const RNA_NN3_INIT: DnaInitParams = DnaInitParams {
+    init: [6.40, 6.99],
+    init_at: [3.85, 11.04],
+    init_gc: [0.0, 0.0],
+    init_one_gc: [0.0, 0.0],
+    init_all_at: [0.0, 0.0],
+    init_5t_a: [0.0, 0.0],
+    sym: [0.0, -1.4],
+};
+
 type HS = [f64; 2];
 const D_H: usize = 0;
 const D_S: usize = 1;
+
+/// Enum for nearest-neighbor thermodynamic tables
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum NnTable {
+    /// Breslauer et al. (1986) - DNA/DNA
+    DnaNn1,
+    /// Sugimoto et al. (1996) - DNA/DNA
+    DnaNn2,
+    /// Allawi & SantaLucia (1997) - DNA/DNA (default)
+    #[default]
+    DnaNn3,
+    /// SantaLucia & Hicks (2004) - DNA/DNA
+    DnaNn4,
+    /// Freier et al. (1986) - RNA/RNA
+    RnaNn1,
+    /// Xia et al. (1998) - RNA/RNA
+    RnaNn2,
+    /// Chen et al. (2012) - RNA/RNA
+    RnaNn3,
+}
+
+impl NnTable {
+    /// Look up nearest-neighbor thermodynamic values
+    pub fn lookup(&self, pair: &[u8]) -> Option<HS> {
+        match self {
+            NnTable::DnaNn1 => dna_nn1_lookup(pair),
+            NnTable::DnaNn2 => dna_nn2_lookup(pair),
+            NnTable::DnaNn3 => dna_nn3_lookup(pair),
+            NnTable::DnaNn4 => dna_nn4_lookup(pair),
+            NnTable::RnaNn1 => rna_nn1_lookup(pair),
+            NnTable::RnaNn2 => rna_nn2_lookup(pair),
+            NnTable::RnaNn3 => rna_nn3_lookup(pair),
+        }
+    }
+
+    /// Get initiation parameters for this table
+    pub fn init_params(&self) -> DnaInitParams {
+        match self {
+            NnTable::DnaNn1 => DNA_NN1_INIT,
+            NnTable::DnaNn2 => DNA_NN2_INIT,
+            NnTable::DnaNn3 => DNA_NN3_INIT,
+            NnTable::DnaNn4 => DNA_NN4_INIT,
+            NnTable::RnaNn1 => RNA_NN1_INIT,
+            NnTable::RnaNn2 => RNA_NN2_INIT,
+            NnTable::RnaNn3 => RNA_NN3_INIT,
+        }
+    }
+}
+
+/// Enum for dangling end tables
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DeTable {
+    /// Bommarito et al. (2000) - DNA dangling ends (default)
+    #[default]
+    DnaDe1,
+    /// Turner & Mathews (2010) - RNA dangling ends
+    RnaDe1,
+}
+
+impl DeTable {
+    /// Look up dangling end thermodynamic values
+    pub fn lookup(&self, seq_pair: &[u8]) -> Option<HS> {
+        match self {
+            DeTable::DnaDe1 => de1_lookup(seq_pair),
+            DeTable::RnaDe1 => rna_de1_lookup(seq_pair),
+        }
+    }
+}
 
 // Helper: Look up NN value from DNA_NN1 table (Breslauer et al. 1986)
 fn dna_nn1_lookup(pair: &[u8]) -> Option<HS> {
@@ -168,6 +273,68 @@ fn dna_nn4_lookup(pair: &[u8]) -> Option<HS> {
         b"CG/GC" => Some([-10.6, -27.2]),
         b"GC/CG" => Some([-9.8, -24.4]),
         b"GG/CC" => Some([-8.0, -19.9]),
+        _ => None,
+    }
+}
+
+// Helper: Look up NN value from RNA_NN1 table (Freier et al. 1986)
+fn rna_nn1_lookup(pair: &[u8]) -> Option<HS> {
+    match pair {
+        b"AA/TT" => Some([-6.6, -18.4]),
+        b"AT/TA" => Some([-5.7, -15.5]),
+        b"TA/AT" => Some([-8.1, -22.6]),
+        b"CA/GT" => Some([-10.5, -27.8]),
+        b"GT/CA" => Some([-10.2, -26.2]),
+        b"CT/GA" => Some([-7.6, -19.2]),
+        b"GA/CT" => Some([-13.3, -35.5]),
+        b"CG/GC" => Some([-8.0, -19.4]),
+        b"GC/CG" => Some([-14.2, -34.9]),
+        b"GG/CC" => Some([-12.2, -29.7]),
+        _ => None,
+    }
+}
+
+// Helper: Look up NN value from RNA_NN2 table (Xia et al. 1998)
+fn rna_nn2_lookup(pair: &[u8]) -> Option<HS> {
+    match pair {
+        b"AA/TT" => Some([-6.82, -19.0]),
+        b"AT/TA" => Some([-9.38, -26.7]),
+        b"TA/AT" => Some([-7.69, -20.5]),
+        b"CA/GT" => Some([-10.44, -26.9]),
+        b"GT/CA" => Some([-11.40, -29.5]),
+        b"CT/GA" => Some([-10.48, -27.1]),
+        b"GA/CT" => Some([-12.44, -32.5]),
+        b"CG/GC" => Some([-10.64, -26.7]),
+        b"GC/CG" => Some([-14.88, -36.9]),
+        b"GG/CC" => Some([-13.39, -32.7]),
+        _ => None,
+    }
+}
+
+// Helper: Look up NN value from RNA_NN3 table (Chen et al. 2012)
+fn rna_nn3_lookup(pair: &[u8]) -> Option<HS> {
+    match pair {
+        b"AA/TT" => Some([-7.09, -19.8]),
+        b"AT/TA" => Some([-9.11, -25.8]),
+        b"TA/AT" => Some([-8.50, -22.9]),
+        b"CA/GT" => Some([-11.03, -28.8]),
+        b"GT/CA" => Some([-11.98, -31.3]),
+        b"CT/GA" => Some([-10.90, -28.5]),
+        b"GA/CT" => Some([-13.21, -34.9]),
+        b"CG/GC" => Some([-10.88, -27.4]),
+        b"GC/CG" => Some([-16.04, -40.6]),
+        b"GG/CC" => Some([-14.18, -35.0]),
+        b"GT/TG" => Some([-13.83, -46.9]),
+        b"GG/TT" => Some([-17.82, -56.7]),
+        b"AG/TT" => Some([-3.96, -11.6]),
+        b"TG/AT" => Some([-0.96, -1.8]),
+        b"TT/AG" => Some([-10.38, -31.8]),
+        b"TG/GT" => Some([-12.64, -38.9]),
+        b"AT/TG" => Some([-7.39, -21.0]),
+        b"CG/GT" => Some([-5.56, -13.9]),
+        b"CT/GG" => Some([-9.44, -24.7]),
+        b"GG/CT" => Some([-7.03, -16.8]),
+        b"GT/CG" => Some([-11.09, -28.8]),
         _ => None,
     }
 }
@@ -361,6 +528,61 @@ fn de1_lookup(seq_pair: &[u8]) -> Option<HS> {
     }
 }
 
+// Helper: Look up dangling end value from RNA_DE1 (Turner & Mathews 2010)
+fn rna_de1_lookup(seq_pair: &[u8]) -> Option<HS> {
+    match seq_pair {
+        b".T/AA" => Some([-4.9, -13.2]),
+        b".T/CA" => Some([-0.9, -1.3]),
+        b".T/GA" => Some([-5.5, -15.1]),
+        b".T/TA" => Some([-2.3, -5.5]),
+        b".G/AC" => Some([-9.0, -23.5]),
+        b".G/CC" => Some([-4.1, -10.6]),
+        b".G/GC" => Some([-8.6, -22.2]),
+        b".G/TC" => Some([-7.5, -20.31]),
+        b".C/AG" => Some([-7.4, -20.3]),
+        b".C/CG" => Some([-2.8, -7.7]),
+        b".C/GG" => Some([-6.4, -16.4]),
+        b".C/TG" => Some([-3.6, -9.7]),
+        b".T/AG" => Some([-4.9, -13.2]),
+        b".T/CG" => Some([-0.9, -1.3]),
+        b".T/GG" => Some([-5.5, -15.1]),
+        b".T/TG" => Some([-2.3, -5.5]),
+        b".A/AT" => Some([-5.7, -16.1]),
+        b".A/CT" => Some([-0.7, -1.9]),
+        b".A/GT" => Some([-5.8, -16.4]),
+        b".A/TT" => Some([-2.2, -6.8]),
+        b".G/AT" => Some([-5.7, -16.1]),
+        b".G/CT" => Some([-0.7, -1.9]),
+        b".G/GT" => Some([-5.8, -16.4]),
+        b".G/TT" => Some([-2.2, -6.8]),
+        b"AT/.A" => Some([-0.5, -0.6]),
+        b"CT/.A" => Some([6.9, 22.6]),
+        b"GT/.A" => Some([0.6, 2.6]),
+        b"TT/.A" => Some([0.6, 2.6]),
+        b"AG/.C" => Some([-1.6, -4.5]),
+        b"CG/.C" => Some([0.7, 3.2]),
+        b"GG/.C" => Some([-4.6, -14.8]),
+        b"TG/.C" => Some([-0.4, -1.3]),
+        b"AC/.G" => Some([-2.4, -6.1]),
+        b"CC/.G" => Some([3.3, 11.6]),
+        b"GC/.G" => Some([0.8, 3.2]),
+        b"TC/.G" => Some([-1.4, -4.2]),
+        b"AT/.G" => Some([-0.5, -0.6]),
+        b"CT/.G" => Some([6.9, 22.6]),
+        b"GT/.G" => Some([0.6, 2.6]),
+        b"TT/.G" => Some([0.6, 2.6]),
+        b"AA/.T" => Some([1.6, 6.1]),
+        b"CA/.T" => Some([2.2, 8.1]),
+        b"GA/.T" => Some([0.7, 3.5]),
+        b"TA/.T" => Some([3.1, 10.6]),
+        b"AG/.T" => Some([1.6, 6.1]),
+        b"CG/.T" => Some([2.2, 8.1]),
+        b"GG/.T" => Some([0.7, 3.5]),
+        b"TG/.T" => Some([3.1, 10.6]),
+        _ => None,
+    }
+}
+
 // Salt correction calculation
 fn salt_correction(
     na: f64,
@@ -481,7 +703,9 @@ pub fn tm_nn(
         if tmp_seq.len() >= 2 && tmp_cseq.len() >= 2 && (tmp_seq[0] == b'.' || tmp_cseq[0] == b'.')
         {
             if let Some(de_val) =
-                de1_lookup(&[tmp_seq[0], tmp_seq[1], b'/', tmp_cseq[0], tmp_cseq[1]])
+                params
+                    .de_table
+                    .lookup(&[tmp_seq[0], tmp_seq[1], b'/', tmp_cseq[0], tmp_cseq[1]])
             {
                 delta_h += de_val[D_H];
                 delta_s += de_val[D_S];
@@ -503,7 +727,7 @@ pub fn tm_nn(
             && tmp_cseq.len() >= 2
             && (tmp_seq[tmp_seq.len() - 1] == b'.' || tmp_cseq[tmp_cseq.len() - 1] == b'.')
         {
-            if let Some(de_val) = de1_lookup(&[
+            if let Some(de_val) = params.de_table.lookup(&[
                 tmp_cseq[tmp_cseq.len() - 1],
                 tmp_cseq[tmp_cseq.len() - 2],
                 b'/',
@@ -553,8 +777,8 @@ pub fn tm_nn(
         }
     }
 
-    // Use DNA_NN3 init parameters (default table)
-    let init_params = DNA_NN3_INIT;
+    // Get init parameters from the selected table
+    let init_params = params.nn_table.init_params();
 
     // Initiation
     delta_h += init_params.init[D_H];
@@ -597,28 +821,26 @@ pub fn tm_nn(
             tmp_cseq[i],
             tmp_cseq[i + 1],
         ];
+        let neighbors_rev = [
+            tmp_cseq[i + 1],
+            tmp_cseq[i],
+            b'/',
+            tmp_seq[i + 1],
+            tmp_seq[i],
+        ];
+
+        // Try internal mismatch table first (includes mismatches)
         if let Some(val) = imm1_lookup(&neighbors) {
             delta_h += val[D_H];
             delta_s += val[D_S];
-        } else if let Some(val) = imm1_lookup(&[
-            tmp_cseq[i + 1],
-            tmp_cseq[i],
-            b'/',
-            tmp_seq[i + 1],
-            tmp_seq[i],
-        ]) {
+        } else if let Some(val) = imm1_lookup(&neighbors_rev) {
             delta_h += val[D_H];
             delta_s += val[D_S];
-        } else if let Some(val) = dna_nn3_lookup(&neighbors) {
+        // Then try nearest neighbor table (regular base pairs)
+        } else if let Some(val) = params.nn_table.lookup(&neighbors) {
             delta_h += val[D_H];
             delta_s += val[D_S];
-        } else if let Some(val) = dna_nn3_lookup(&[
-            tmp_cseq[i + 1],
-            tmp_cseq[i],
-            b'/',
-            tmp_seq[i + 1],
-            tmp_seq[i],
-        ]) {
+        } else if let Some(val) = params.nn_table.lookup(&neighbors_rev) {
             delta_h += val[D_H];
             delta_s += val[D_S];
         } else {
@@ -895,5 +1117,54 @@ mod tests {
             }
         )
         .is_err());
+    }
+
+    /// Test different NN tables produce different results
+    #[test]
+    fn test_nn_table_selection() {
+        let seq = b"CGCTCAGAGACAAGCCGTTACAACGTAACC";
+
+        // DNA_NN3 (default)
+        let tm_nn3 = tm_nn(seq, None, TmNnParams::default()).unwrap();
+        assert!((tm_nn3 - 63.05).abs() < 0.01);
+
+        // DNA_NN1 (Breslauer '86)
+        let tm_nn1 = tm_nn(
+            seq,
+            None,
+            TmNnParams {
+                nn_table: NnTable::DnaNn1,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        // Different table should give different result
+        assert!((tm_nn1 - tm_nn3).abs() > 0.1);
+
+        // DNA_NN2 (Sugimoto '96)
+        let tm_nn2 = tm_nn(
+            seq,
+            None,
+            TmNnParams {
+                nn_table: NnTable::DnaNn2,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        // Different table should give different result
+        assert!((tm_nn2 - tm_nn3).abs() > 0.1);
+
+        // DNA_NN4 (SantaLucia & Hicks 2004)
+        let tm_nn4 = tm_nn(
+            seq,
+            None,
+            TmNnParams {
+                nn_table: NnTable::DnaNn4,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        // NN4 should be close to NN3 (same values for most pairs)
+        assert!((tm_nn4 - tm_nn3).abs() < 0.1);
     }
 }
